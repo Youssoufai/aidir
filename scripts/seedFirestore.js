@@ -42,7 +42,7 @@ async function seed() {
                 category,
                 region,
                 prompt: filledPrompt,
-                createdAt: new Date(),
+                createdAt: new Date(),// 
             });
 
             console.log(`Seeded prompt for ${category} in ${region}`);
