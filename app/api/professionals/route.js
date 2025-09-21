@@ -63,7 +63,7 @@ Return the data in this structure:
 
     let text = result.response.text();
     text = text.replace(/```json|```/g, "").trim();
-
+    // change
     let professionals;
     try {
       professionals = JSON.parse(text);
