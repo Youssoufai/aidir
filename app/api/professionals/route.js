@@ -8,21 +8,25 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export async function POST(req) {
   try {
-    const { prompt } = await req.json();// Option 1 (usually more stable):
+    const { prompt } = await req.json();
+    if (!prompt) {
+      return NextResponse.json(
+        { error: true, message: "Prompt is required", professionals: [] },
+        { status: 400 }
+      );
+    }
+
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
-    // or Option 2 (same flash but latest):
-    // const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-
-    // --- retry logic (try up to 3 times if 503) ---
+    // --- retry logic ---
     let result;
     let attempt = 0;
     while (attempt < 3) {
       try {
         result = await model.generateContent(
           `You are a data API.
-Return ONLY a valid JSON object. 
-Do not include explanations or code fences. 
+Return ONLY a valid JSON object.
+Do not include explanations or code fences.
 
 Using the following criteria:
 
@@ -47,26 +51,25 @@ Return the data in this structure:
   ]
 }`
         );
-        break; // ✅ success, exit loop
+        break;
       } catch (err) {
-        // if 503 (overloaded), wait a bit & retry
         if (err.status === 503) {
           attempt++;
           console.warn(`Gemini overloaded, retrying ${attempt}/3 ...`);
           await new Promise((r) => setTimeout(r, 2000 * attempt));
-          if (attempt === 3) throw err; // too many retries
+          if (attempt === 3) throw err;
         } else {
-          throw err; // other error
+          throw err;
         }
       }
     }
 
     let text = result.response.text();
     text = text.replace(/```json|```/g, "").trim();
-    // change
-    let professionals;
+
+    let parsed;
     try {
-      professionals = JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch (err) {
       console.error("Gemini returned non-JSON:", text);
       return NextResponse.json(
@@ -75,7 +78,10 @@ Return the data in this structure:
       );
     }
 
-    // ✅ Save to Firestore
+    // 🔹 Flatten professionals array for frontend
+    const professionals = (parsed.countries || []).flatMap((c) => c.professionals || []);
+
+    // 🔹 Save to Firestore
     const docRef = await addDoc(collection(db, "Prof_LIST_A"), {
       prompt,
       professionals,
@@ -83,7 +89,7 @@ Return the data in this structure:
       createdAt: serverTimestamp(),
     });
 
-    return NextResponse.json({ id: docRef.id, professionals });
+    return NextResponse.json({ error: false, id: docRef.id, professionals });
   } catch (err) {
     console.error("Gemini Error:", err);
     const status = err?.status || 500;
