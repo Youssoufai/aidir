@@ -36,6 +36,24 @@ export default function Home() {
         "South East Asia and Australia",
     ];
 
+    // 🔹 Generate a unique bio for each professional
+    const generateBio = (pro) => {
+        const adjectives = ["renowned", "accomplished", "innovative", "expert", "visionary"];
+        const achievements = [
+            "leading projects in",
+            "pioneering research on",
+            "consulting top companies on",
+            "developing solutions for",
+            "mentoring teams in",
+        ];
+
+        const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+        const achievement = achievements[Math.floor(Math.random() * achievements.length)];
+        const skills = pro.skills?.join(", ") || "their field";
+
+        return `${pro.fullName} is a ${adj} ${pro.title} based in ${pro.businessLocation || "Remote"}. They have been ${achievement} ${skills}, delivering measurable results and innovative solutions.`;
+    };
+
     // 🔹 Fetch prompt from Firestore
     async function fetchPrompt() {
         if (category === "All Categories" || location === "All Locations") {
@@ -94,14 +112,14 @@ export default function Home() {
             const data = await res.json();
             console.log("API response:", data);
 
-            // Ensure proper fallback if API fails
-            if (res.ok && Array.isArray(data.professionals)) {
-                setProfessionals(data.professionals);
-                if (data.professionals.length === 0) {
-                    alert("No professionals found for this prompt.");
-                }
+            let pros = [];
+            if (res.ok && Array.isArray(data.professionals) && data.professionals.length > 0) {
+                pros = data.professionals.map((pro) => ({
+                    ...pro,
+                    bio: generateBio(pro),
+                }));
             } else {
-                console.warn("API returned unexpected response, using fallback data.");
+                // Fallback professionals
                 const fallbackProfessionals = [
                     {
                         fullName: "Jane Doe",
@@ -110,9 +128,6 @@ export default function Home() {
                         rating: 4.9,
                         reviews: 12,
                         skills: ["AI", "Robotics"],
-                        bio: "Expert in artificial intelligence and robotics.",
-                        rate: "$120/hr",
-                        availability: "Available Now",
                     },
                     {
                         fullName: "John Smith",
@@ -121,18 +136,19 @@ export default function Home() {
                         rating: 4.8,
                         reviews: 20,
                         skills: ["Quantum Physics", "Nanotech"],
-                        bio: "Pioneer in quantum mechanics applications.",
-                        rate: "$150/hr",
-                        availability: "Available Soon",
                     },
                 ];
-                setProfessionals(fallbackProfessionals);
+                pros = fallbackProfessionals.map((pro) => ({
+                    ...pro,
+                    bio: generateBio(pro),
+                }));
             }
+
+            setProfessionals(pros);
         } catch (err) {
             console.error("Error generating professionals:", err);
             alert("Error generating professionals. Using fallback data.");
-            // Fallback data
-            setProfessionals([
+            const fallbackProfessionals = [
                 {
                     fullName: "Jane Doe",
                     title: "AI Specialist",
@@ -140,9 +156,6 @@ export default function Home() {
                     rating: 4.9,
                     reviews: 12,
                     skills: ["AI", "Robotics"],
-                    bio: "Expert in artificial intelligence and robotics.",
-                    rate: "$120/hr",
-                    availability: "Available Now",
                 },
                 {
                     fullName: "John Smith",
@@ -151,11 +164,12 @@ export default function Home() {
                     rating: 4.8,
                     reviews: 20,
                     skills: ["Quantum Physics", "Nanotech"],
-                    bio: "Pioneer in quantum mechanics applications.",
-                    rate: "$150/hr",
-                    availability: "Available Soon",
                 },
-            ]);
+            ];
+            setProfessionals(fallbackProfessionals.map((pro) => ({
+                ...pro,
+                bio: generateBio(pro),
+            })));
         } finally {
             setLoading(false);
         }
@@ -163,8 +177,7 @@ export default function Home() {
 
     return (
         <main className="min-h-screen bg-gray-50">
-            {/* Header123 */}
-
+            {/* Header */}
             <header className="flex items-center justify-between px-6 py-4 bg-white shadow">
                 <div className="flex items-center gap-2">
                     <div className="bg-indigo-600 p-2 rounded-lg">
@@ -173,9 +186,6 @@ export default function Home() {
                     <h1 className="text-xl font-semibold text-gray-800">ProTalent</h1>
                 </div>
                 <div className="flex items-center gap-4">
-                    <nav className="hidden md:flex gap-6 text-gray-600 font-medium">
-
-                    </nav>
                     <div className="flex items-center gap-2">
                         <img
                             src="https://i.pravatar.cc/40"
@@ -302,12 +312,10 @@ export default function Home() {
                                 ))}
                             </div>
 
-                            <p className="text-sm text-gray-600 flex-1 mb-3">
-                                {pro.bio || "Experienced professional with expertise in the field."}
-                            </p>
+                            <p className="text-sm text-gray-600 flex-1 mb-3">{pro.bio}</p>
 
                             <div className="flex justify-between items-center mt-auto">
-                                <p className="text-lg font-semibold text-gray-800">{pro.rate || "$100/hr"}</p>
+                                {/*  <p className="text-lg font-semibold text-gray-800">{pro.rate || "$100/hr"}</p> */}
                                 <span className="px-3 py-1 text-xs rounded-full bg-green-100 text-green-700">
                                     {pro.availability || "Available Now"}
                                 </span>
