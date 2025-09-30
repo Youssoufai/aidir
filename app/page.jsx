@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -12,12 +15,14 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState(""); // 👈 new state
+  const [role, setRole] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleSignup = async (e) => {
     e.preventDefault();
+
+    // ✅ Simple validations
     if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
@@ -29,41 +34,54 @@ export default function SignupPage() {
 
     setError("");
     setLoading(true);
+
     try {
-      // 1️⃣ Create user
+      // 🔹 Create user with email/password
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
         password
       );
+      const user = userCredential.user;
 
-      // 2️⃣ Update Auth displayName
-      await updateProfile(userCredential.user, {
+      // 🔹 Update Firebase Auth profile
+      await updateProfile(user, {
         displayName: fullName,
       });
 
-      // 3️⃣ Save extra info (role) to Firestore
-      await setDoc(doc(db, "users", userCredential.user.uid), {
+      // 🔹 Save user record in Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
         fullName,
         email,
         role,
+        photoURL: user.photoURL || null,
         createdAt: serverTimestamp(),
       });
 
-      router.push("/dashboard"); // redirect after signup
+      // 🔹 Redirect after signup
+      router.push("/dashboard");
     } catch (err) {
-      console.error(err);
-      setError(err.message);
+      console.error("Signup error:", err);
+      setError(err.message || "Failed to sign up. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow">
+    <div className="flex flex-col items-center min-h-screen bg-gray-50 py-10">
+      {/* Logo/Header */}
+      <div className="flex items-center gap-2 mb-8">
+        <div className="bg-indigo-600 p-3 rounded-lg shadow">
+          <span className="text-white text-xl font-bold">PT</span>
+        </div>
+        <h1 className="text-3xl font-bold text-gray-800">ProTalent</h1>
+      </div>
+
+      <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg space-y-6">
         <h2 className="text-2xl font-bold text-center text-gray-800">
-          Create an Account
+          Create Your Account
         </h2>
 
         {error && (
@@ -73,59 +91,38 @@ export default function SignupPage() {
         )}
 
         <form onSubmit={handleSignup} className="space-y-4">
-          <div>
-            <label className="block mb-1 text-sm font-medium text-gray-700">
-              Full Name
-            </label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <InputField
+            label="Full Name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            type="text"
+            placeholder="John Doe"
+          />
 
-          <div>
-            <label className="block mb-1 text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <InputField
+            label="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            placeholder="you@example.com"
+          />
 
-          <div>
-            <label className="block mb-1 text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <InputField
+            label="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            placeholder="********"
+          />
 
-          <div>
-            <label className="block mb-1 text-sm font-medium text-gray-700">
-              Confirm Password
-            </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <InputField
+            label="Confirm Password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            type="password"
+            placeholder="********"
+          />
 
-          {/* 👇 Role Selector */}
           <div>
             <label className="block mb-1 text-sm font-medium text-gray-700">
               Select Role
@@ -134,7 +131,7 @@ export default function SignupPage() {
               value={role}
               onChange={(e) => setRole(e.target.value)}
               required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">-- Choose a role --</option>
               <option value="admin">Admin</option>
@@ -145,7 +142,7 @@ export default function SignupPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="w-full py-2 mt-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition"
           >
             {loading ? "Creating Account..." : "Sign Up"}
           </button>
@@ -153,11 +150,30 @@ export default function SignupPage() {
 
         <p className="text-sm text-center text-gray-600">
           Already have an account?{" "}
-          <a href="/login" className="text-blue-600 hover:underline">
+          <a href="/login" className="text-indigo-600 hover:underline">
             Log In
           </a>
         </p>
       </div>
+    </div>
+  );
+}
+
+// 🔹 Reusable input component
+function InputField({ label, value, onChange, type = "text", placeholder }) {
+  return (
+    <div>
+      <label className="block mb-1 text-sm font-medium text-gray-700">
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required
+        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
     </div>
   );
 }
