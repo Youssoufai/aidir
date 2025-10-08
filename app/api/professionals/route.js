@@ -1,4 +1,3 @@
-// app/api/professionals/route.js
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "@/lib/firebase";
@@ -23,16 +22,14 @@ export async function POST(req) {
     let attempt = 0;
     while (attempt < 3) {
       try {
-        result = await model.generateContent(
-          `You are a data API.
-Return ONLY a valid JSON object.
-Do not include explanations or code fences.
+        result = await model.generateContent(`
+You are a professional data API. Return ONLY valid JSON. No explanations, no code fences. 
 
-Using the following criteria:
+Generate a list of professionals using the following prompt:
 
 ${prompt}
 
-Return the data in this structure:
+For each professional, return all available information. Use this structure:
 
 {
   "countries": [
@@ -40,17 +37,29 @@ Return the data in this structure:
       "country": "Country Name",
       "professionals": [
         {
-          "fullName": "First Last Other",
-          "specificExpertise": "text",
-          "affiliation": "text",
+          "fullName": "First Last",            // Required
+          "title": "Job title or specific expertise",
+          "affiliation": "Organization or company",
           "businessLocation": "City, Country",
-          "citizenships": ["Country1","Country2"]
+          "citizenships": ["Country1", "Country2"],
+          "email": "Email if available",
+          "phone": "Phone if available",
+          "education": "Degrees, certifications, schools",
+          "experience": "Years of experience or roles",
+          "achievements": ["Achievement1","Achievement2"],
+          "skills": ["Skill1","Skill2"],
+          "ratings": 0-5,
+          "reviews": Number of reviews,
+          "availability": "Available Now or timeframe",
+          "image": "URL of profile image"
         }
       ]
     }
   ]
-}`
-        );
+}
+
+If any field is unknown, use "Unknown" for strings, 0 for numbers, empty array for lists. Ensure the JSON parses correctly.
+        `);
         break;
       } catch (err) {
         if (err.status === 503) {
@@ -64,6 +73,7 @@ Return the data in this structure:
       }
     }
 
+    // Clean and parse Gemini output
     let text = result.response.text();
     text = text.replace(/```json|```/g, "").trim();
 
@@ -78,18 +88,41 @@ Return the data in this structure:
       );
     }
 
-    // 🔹 Flatten professionals array for frontend
-    const professionals = (parsed.countries || []).flatMap((c) => c.professionals || []);
+    // Flatten and normalize professionals
+    const professionals = (parsed.countries || []).flatMap((c) =>
+      (c.professionals || []).map((p) => ({
+        id: "", // will set after saving
+        country: c.country || "Unknown",
+        fullName: p.fullName || "Unknown",
+        title: p.title || "Unknown",
+        affiliation: p.affiliation || "Unknown",
+        businessLocation: p.businessLocation || "Unknown",
+        citizenships: p.citizenships || [],
+        email: p.email || "Unknown",
+        phone: p.phone || "Unknown",
+        education: p.education || "Unknown",
+        experience: p.experience || "Unknown",
+        achievements: p.achievements || [],
+        skills: p.skills || [],
+        ratings: p.ratings || 0,
+        reviews: p.reviews || 0,
+        availability: p.availability || "Available Now",
+        image: p.image || "",
+      }))
+    );
 
-    // 🔹 Save to Firestore
-    const docRef = await addDoc(collection(db, "Prof_LIST_A"), {
-      prompt,
-      professionals,
-      status: "Profile Not Generated",
-      createdAt: serverTimestamp(),
-    });
+    // Save each professional as a separate document
+    const savedProfessionals = [];
+    for (const pro of professionals) {
+      const docRef = await addDoc(collection(db, "Prof_LIST_A"), {
+        ...pro,
+        status: "Profile Not Generated",
+        createdAt: serverTimestamp(),
+      });
+      savedProfessionals.push({ ...pro, id: docRef.id });
+    }
 
-    return NextResponse.json({ error: false, id: docRef.id, professionals });
+    return NextResponse.json({ error: false, professionals: savedProfessionals });
   } catch (err) {
     console.error("Gemini Error:", err);
     const status = err?.status || 500;
