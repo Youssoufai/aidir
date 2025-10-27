@@ -4,6 +4,17 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 First, run the development server:
 
+fetch/generate - single
+in the cards they should be more(pagination)
+profile update(edit profile)
+vwa,instagram,google.
+easy exit from a page
+more categories from category
+location
+search, option or new chat
+search option should be available
+
+
 ```bash
 npm run dev
 # or

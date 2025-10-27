@@ -6,6 +6,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { setCookie } from "cookies-next";
 import { auth, db } from "@/lib/firebase";
+import Link from "next/link";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -81,9 +82,9 @@ export default function LoginPage() {
 
                 <p className="text-sm text-center text-gray-500 mt-4">
                     Don’t have an account?{" "}
-                    <a href="/signup" className="text-blue-600 hover:underline">
+                    <Link href="/" className="text-blue-600 hover:underline">
                         Sign up
-                    </a>
+                    </Link>
                 </p>
             </div>
         </div>

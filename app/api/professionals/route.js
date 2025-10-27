@@ -1,135 +1,146 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc } from "firebase/firestore";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-export async function POST(req) {
-  try {
-    const { prompt } = await req.json();
-    if (!prompt) {
-      return NextResponse.json(
-        { error: true, message: "Prompt is required", professionals: [] },
-        { status: 400 }
-      );
-    }
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
-
-    // --- retry logic ---
-    let result;
-    let attempt = 0;
-    while (attempt < 3) {
-      try {
-        result = await model.generateContent(`
-You are a professional data API. Return ONLY valid JSON. No explanations, no code fences. 
-
-Generate a list of professionals using the following prompt:
-
-${prompt}
-
-For each professional, return all available information. Use this structure:
-
-{
-  "countries": [
-    {
-      "country": "Country Name",
-      "professionals": [
-        {
-          "fullName": "First Last",            // Required
-          "title": "Job title or specific expertise",
-          "affiliation": "Organization or company",
-          "businessLocation": "City, Country",
-          "citizenships": ["Country1", "Country2"],
-          "email": "Email if available",
-          "phone": "Phone if available",
-          "education": "Degrees, certifications, schools",
-          "experience": "Years of experience or roles",
-          "achievements": ["Achievement1","Achievement2"],
-          "skills": ["Skill1","Skill2"],
-          "ratings": 0-5,
-          "reviews": Number of reviews,
-          "availability": "Available Now or timeframe",
-          "image": "URL of profile image"
+function sanitizeForFirestore(obj) {
+    const clean = {};
+    for (const [key, value] of Object.entries(obj)) {
+        if (value === undefined || value === null || value === "" || Number.isNaN(value)) continue;
+        if (typeof value === "object" && !Array.isArray(value)) {
+            clean[key] = sanitizeForFirestore(value);
+        } else {
+            clean[key] = value;
         }
-      ]
     }
-  ]
+    return clean;
 }
 
-If any field is unknown, use "Unknown" for strings, 0 for numbers, empty array for lists. Ensure the JSON parses correctly.
-        `);
-        break;
-      } catch (err) {
-        if (err.status === 503) {
-          attempt++;
-          console.warn(`Gemini overloaded, retrying ${attempt}/3 ...`);
-          await new Promise((r) => setTimeout(r, 2000 * attempt));
-          if (attempt === 3) throw err;
-        } else {
-          throw err;
-        }
-      }
-    }
-
-    // Clean and parse Gemini output
-    let text = result.response.text();
-    text = text.replace(/```json|```/g, "").trim();
-
-    let parsed;
+export async function POST(req) {
     try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      console.error("Gemini returned non-JSON:", text);
-      return NextResponse.json(
-        { error: true, message: "Gemini returned invalid JSON", professionals: [] },
-        { status: 500 }
-      );
+        const { profession, region } = await req.json();
+
+        if (!profession || !region) {
+            return NextResponse.json({ error: "Profession and region are required." }, { status: 400 });
+        }
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        console.log("Gemini key loaded:", process.env.GEMINI_API_KEY ? "✅ Yes" : "❌ No");
+
+        const prompt = `
+Generate a list (JSON only) of 10–20 top professionals in the field of ${profession} from ${region}.
+Each professional should be an object with:
+{
+  "fullName": "string",
+  "gender": "string",
+  "ageAndDOB": "string",
+  "specificExpertise": "string",
+  "institutionAffiliation": "string",
+  "location": "string"
+}
+Return valid JSON only. Do not include markdown or code fences.
+`;
+
+        let resultText = "";
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const response = await model.generateContent(prompt);
+                resultText = response.response.text().replace(/```json|```/g, "").trim();
+                if (resultText) break;
+            } catch (err) {
+                console.error(`Attempt ${attempt + 1} failed:`, err);
+                if (attempt === 2) throw err;
+                await new Promise((r) => setTimeout(r, 3000));
+            }
+        }
+
+        if (!resultText) throw new Error("No response text from Gemini.");
+
+        let parsed;
+        try {
+            parsed = JSON.parse(resultText);
+        } catch (e) {
+            console.error("❌ JSON parse failed, trying cleanup:", e);
+            // try to recover common broken JSONs
+            const fixed = resultText
+                .replace(/^[^{\[]+/, "")
+                .replace(/[^}\]]+$/, "")
+                .replace(/\n/g, " ")
+                .trim();
+            parsed = JSON.parse(fixed);
+        }
+
+        // Normalize result structure
+        let professionals = [];
+
+        if (Array.isArray(parsed)) {
+            professionals = parsed;
+        } else if (parsed?.countries) {
+            for (const group of parsed.countries) {
+                professionals.push(...(group.professionals || []));
+            }
+        } else if (parsed?.data) {
+            professionals = parsed.data;
+        } else if (parsed?.professionals) {
+            professionals = parsed.professionals;
+        } else {
+            // fallback: try all object values
+            professionals = Object.values(parsed).flatMap((v) =>
+                Array.isArray(v) ? v : [v]
+            );
+        }
+
+        if (!professionals.length) {
+            console.warn("⚠️ No professionals found in model output.");
+            return NextResponse.json(
+                { error: "No valid professionals found from Gemini output." },
+                { status: 500 }
+            );
+        }
+
+        let savedCount = 0;
+        for (const person of professionals) {
+            const safeData = sanitizeForFirestore({
+                fullName:
+                    person.fullName ||
+                    person.name ||
+                    "Unnamed Professional",
+                gender: person.gender || "Not specified",
+                ageAndDOB: person.ageAndDOB || "Not specified",
+                specificExpertise: person.specificExpertise || "Not specified",
+                institutionAffiliation:
+                    person.institutionAffiliation ||
+                    person.affiliation ||
+                    "Unknown",
+                location: person.location || "Unknown",
+                profession,
+                category: profession,
+                region,
+                createdAt: new Date().toISOString(),
+            });
+
+            if (safeData.fullName) {
+                await addDoc(collection(db, "Prof_LIST_A"), safeData);
+                savedCount++;
+            }
+        }
+
+        console.log(`✅ Saved ${savedCount} professionals to Firestore`);
+        return NextResponse.json(
+            {
+                message: `Saved ${savedCount} professionals successfully.`,
+                count: savedCount,
+                success: true,
+            },
+            { status: 200 }
+        );
+    } catch (error) {
+        console.error("❌ API Error:", error);
+        return NextResponse.json(
+            { error: error.message || "Server error" },
+            { status: 500 }
+        );
     }
-
-    // Flatten and normalize professionals
-    const professionals = (parsed.countries || []).flatMap((c) =>
-      (c.professionals || []).map((p) => ({
-        id: "", // will set after saving
-        country: c.country || "Unknown",
-        fullName: p.fullName || "Unknown",
-        title: p.title || "Unknown",
-        affiliation: p.affiliation || "Unknown",
-        businessLocation: p.businessLocation || "Unknown",
-        citizenships: p.citizenships || [],
-        email: p.email || "Unknown",
-        phone: p.phone || "Unknown",
-        education: p.education || "Unknown",
-        experience: p.experience || "Unknown",
-        achievements: p.achievements || [],
-        skills: p.skills || [],
-        ratings: p.ratings || 0,
-        reviews: p.reviews || 0,
-        availability: p.availability || "Available Now",
-        image: p.image || "",
-      }))
-    );
-
-    // Save each professional as a separate document
-    const savedProfessionals = [];
-    for (const pro of professionals) {
-      const docRef = await addDoc(collection(db, "Prof_LIST_A"), {
-        ...pro,
-        status: "Profile Not Generated",
-        createdAt: serverTimestamp(),
-      });
-      savedProfessionals.push({ ...pro, id: docRef.id });
-    }
-
-    return NextResponse.json({ error: false, professionals: savedProfessionals });
-  } catch (err) {
-    console.error("Gemini Error:", err);
-    const status = err?.status || 500;
-    const message =
-      status === 503
-        ? "Gemini model is overloaded. Please try again later."
-        : "Something went wrong.";
-    return NextResponse.json({ error: true, message, professionals: [] }, { status });
-  }
 }
