@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { createUserWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 export default function SignupPage() {
@@ -14,26 +14,51 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Don't use auth state listener during signup - it causes race conditions
+  // Only redirect after successful signup in handleSignup function
+
   const handleSignup = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      // Create user in Firebase Auth
+      console.log("Selected role:", role);
+
+      // 1️⃣ Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      console.log("Firebase user created:", user.uid);
 
-      // Save user role and email in Firestore
+      // 2️⃣ Save user role and email in Firestore
       await setDoc(doc(db, "users", user.uid), {
         email: user.email,
         role: role,
       });
+      console.log("User role saved in Firestore:", role);
 
-      alert(`Signup successful as ${role.toUpperCase()}! Please log in.`);
-      router.push("/login");
+      // 3️⃣ Wait briefly to ensure Firestore write propagates
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 4️⃣ Verify the role was saved correctly
+      const savedDoc = await getDoc(doc(db, "users", user.uid));
+      const savedRole = savedDoc.data()?.role;
+      console.log("Verified role from Firestore:", savedRole);
+
+      // 5️⃣ Redirect based on the verified role
+      if (savedRole === "admin") {
+        console.log("Redirecting Admin to /dashboard");
+        router.push("/dashboard");
+      } else if (savedRole === "superAdmin") {
+        console.log("Redirecting Super Admin to /dshboard");
+        router.push("/dshboard");
+      } else {
+        console.log("Redirecting to /default");
+        router.push("/default");
+      }
+
     } catch (err) {
-      console.error(err);
+      console.error("Signup error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -52,6 +77,7 @@ export default function SignupPage() {
             type="email"
             placeholder="Email"
             className="w-full border rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
@@ -60,11 +86,11 @@ export default function SignupPage() {
             type="password"
             placeholder="Password"
             className="w-full border rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
 
-          {/* Dropdown for selecting role */}
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
@@ -72,12 +98,13 @@ export default function SignupPage() {
           >
             <option value="user">User</option>
             <option value="admin">Admin</option>
+            <option value="superAdmin">Super Admin</option>
           </select>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition"
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-60"
           >
             {loading ? "Creating Account..." : "Sign Up"}
           </button>

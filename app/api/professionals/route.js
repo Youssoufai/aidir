@@ -31,16 +31,17 @@ export async function POST(req) {
 
         const prompt = `
 Generate a list (JSON only) of 10–20 top professionals in the field of ${profession} from ${region}.
-Each professional should be an object with:
+Each professional should be an object with the following keys:
 {
   "fullName": "string",
   "gender": "string",
   "ageAndDOB": "string",
   "specificExpertise": "string",
   "institutionAffiliation": "string",
-  "location": "string"
+  "location": "string",
+  "bio": "A short professional biography describing their expertise, experience, and notable work (2–3 sentences)"
 }
-Return valid JSON only. Do not include markdown or code fences.
+Return valid JSON only — no markdown, no explanations.
 `;
 
         let resultText = "";
@@ -63,7 +64,6 @@ Return valid JSON only. Do not include markdown or code fences.
             parsed = JSON.parse(resultText);
         } catch (e) {
             console.error("❌ JSON parse failed, trying cleanup:", e);
-            // try to recover common broken JSONs
             const fixed = resultText
                 .replace(/^[^{\[]+/, "")
                 .replace(/[^}\]]+$/, "")
@@ -72,28 +72,20 @@ Return valid JSON only. Do not include markdown or code fences.
             parsed = JSON.parse(fixed);
         }
 
-        // Normalize result structure
         let professionals = [];
-
         if (Array.isArray(parsed)) {
             professionals = parsed;
-        } else if (parsed?.countries) {
-            for (const group of parsed.countries) {
-                professionals.push(...(group.professionals || []));
-            }
         } else if (parsed?.data) {
             professionals = parsed.data;
         } else if (parsed?.professionals) {
             professionals = parsed.professionals;
         } else {
-            // fallback: try all object values
             professionals = Object.values(parsed).flatMap((v) =>
                 Array.isArray(v) ? v : [v]
             );
         }
 
         if (!professionals.length) {
-            console.warn("⚠️ No professionals found in model output.");
             return NextResponse.json(
                 { error: "No valid professionals found from Gemini output." },
                 { status: 500 }
@@ -101,37 +93,38 @@ Return valid JSON only. Do not include markdown or code fences.
         }
 
         let savedCount = 0;
+        let savedIds = [];
+
         for (const person of professionals) {
             const safeData = sanitizeForFirestore({
-                fullName:
-                    person.fullName ||
-                    person.name ||
-                    "Unnamed Professional",
+                fullName: person.fullName || person.name || "Unnamed Professional",
                 gender: person.gender || "Not specified",
                 ageAndDOB: person.ageAndDOB || "Not specified",
                 specificExpertise: person.specificExpertise || "Not specified",
-                institutionAffiliation:
-                    person.institutionAffiliation ||
-                    person.affiliation ||
-                    "Unknown",
+                institutionAffiliation: person.institutionAffiliation || person.affiliation || "Unknown",
                 location: person.location || "Unknown",
+                bio: person.bio || `A seasoned professional in ${profession} from ${region}.`,
                 profession,
                 category: profession,
                 region,
+                approvalStatus: "pending", // ✅ standardized
                 createdAt: new Date().toISOString(),
             });
 
-            if (safeData.fullName) {
-                await addDoc(collection(db, "Prof_LIST_A"), safeData);
-                savedCount++;
-            }
+
+            const docRef = await addDoc(collection(db, "Prof_LIST_A"), safeData);
+            savedIds.push(docRef.id);
+            savedCount++;
         }
 
         console.log(`✅ Saved ${savedCount} professionals to Firestore`);
+        console.log("🔥 Saved professionals IDs:", savedIds);
+
         return NextResponse.json(
             {
                 message: `Saved ${savedCount} professionals successfully.`,
                 count: savedCount,
+                savedIds,
                 success: true,
             },
             { status: 200 }
@@ -139,7 +132,7 @@ Return valid JSON only. Do not include markdown or code fences.
     } catch (error) {
         console.error("❌ API Error:", error);
         return NextResponse.json(
-            { error: error.message || "Server error" },
+            { error: error.message || "Server error", success: false },
             { status: 500 }
         );
     }
